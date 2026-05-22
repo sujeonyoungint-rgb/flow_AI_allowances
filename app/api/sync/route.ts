@@ -152,6 +152,7 @@ export async function POST() {
         parsed_date: parsed.valid ? parsed.dateStr : null,
         parsed_store: parsed.valid ? parsed.store : null,
         parsed_amount: parsed.valid ? parsed.amount : null,
+        parsed_note: parsed.valid ? (parsed.note || null) : null,
         is_parsed: parsed.valid,
         settlement_year: settlementYear,
         settlement_month: settlementMonth,

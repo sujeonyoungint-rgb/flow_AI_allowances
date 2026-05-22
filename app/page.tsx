@@ -5,6 +5,7 @@ import {
   Calendar, RefreshCw, CheckCircle2, AlertTriangle, Download,
   ChevronDown, ChevronRight, CircleDollarSign, AlertCircle
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { formatKRW } from "@/lib/utils";
 import { Post, MemberSettlement } from "@/lib/types";
 
@@ -174,7 +175,7 @@ export default function App() {
     });
     rows.push(["합계", "", String(grandTotal), "", ""]);
     rows.push([]);
-    rows.push(["담당자", "날짜", "매장", "수당", "이월"]);
+    rows.push(["담당자", "날짜", "매장", "비고", "수당", "이월"]);
     Object.values(byMember).forEach(g => {
       g.items.forEach(item => {
         const isCarried = g.carriedItems.includes(item);
@@ -182,6 +183,7 @@ export default function App() {
           g.name,
           item.parsed_date || "",
           item.parsed_store || "",
+          item.parsed_note || "",
           String(item.parsed_amount || 0),
           isCarried ? "이월" : "",
         ]);
@@ -195,6 +197,56 @@ export default function App() {
     a.download = `정산_${year}-${String(month).padStart(2, "0")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function exportXLSX() {
+    // 시트 1: 요약
+    const summaryRows: any[][] = [
+      ["담당자", "건수", "총수당", "검토", "지급"],
+    ];
+    Object.values(byMember).forEach(g => {
+      const s = getSettlement(g.name);
+      summaryRows.push([
+        g.name,
+        g.items.length,
+        g.total,
+        s?.is_reviewed ? "완료" : "대기",
+        s?.is_paid ? "완료" : "대기",
+      ]);
+    });
+    summaryRows.push(["합계", "", grandTotal, "", ""]);
+
+    // 시트 2: 상세 내역
+    const detailRows: any[][] = [
+      ["담당자", "날짜", "매장", "비고", "수당", "이월"],
+    ];
+    Object.values(byMember).forEach(g => {
+      g.items.forEach(item => {
+        const isCarried = g.carriedItems.includes(item);
+        detailRows.push([
+          g.name,
+          item.parsed_date || "",
+          item.parsed_store || "",
+          item.parsed_note || "",
+          item.parsed_amount || 0,
+          isCarried ? "이월" : "",
+        ]);
+      });
+    });
+
+    // Workbook 생성
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
+    const ws2 = XLSX.utils.aoa_to_sheet(detailRows);
+    
+    // 컬럼 너비
+    ws1["!cols"] = [{ wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 8 }, { wch: 8 }];
+    ws2["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 35 }, { wch: 12 }, { wch: 14 }, { wch: 8 }];
+
+    XLSX.utils.book_append_sheet(wb, ws1, "요약");
+    XLSX.utils.book_append_sheet(wb, ws2, "상세");
+
+    XLSX.writeFile(wb, `정산_${year}-${String(month).padStart(2, "0")}.xlsx`);
   }
 
   function toggleExpand(name: string) {
@@ -265,6 +317,14 @@ export default function App() {
           >
             <Download size={14} />
             CSV
+          </button>
+
+          <button
+            onClick={exportXLSX}
+            className="flex items-center gap-1.5 text-sm border border-neutral-300 rounded px-3 py-1.5 bg-white hover:bg-neutral-50"
+          >
+            <Download size={14} />
+            Excel
           </button>
 
           <div className="text-sm">
@@ -339,13 +399,12 @@ export default function App() {
                     <button
                       onClick={() => handleReview(memberName)}
                       disabled={isReviewed || group.items.length === 0}
-                      className={`text-xs px-2.5 py-1.5 rounded border ${
-                        isReviewed
+                      className={`text-xs px-2.5 py-1.5 rounded border ${isReviewed
                           ? "border-sky-200 bg-sky-50 text-sky-700 cursor-not-allowed"
                           : group.items.length === 0
-                          ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
-                          : "border-sky-600 bg-white text-sky-700 hover:bg-sky-50"
-                      }`}
+                            ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                            : "border-sky-600 bg-white text-sky-700 hover:bg-sky-50"
+                        }`}
                     >
                       {isReviewed ? (
                         <span className="inline-flex items-center gap-1"><CheckCircle2 size={11} /> 검토</span>
@@ -354,13 +413,12 @@ export default function App() {
                     <button
                       onClick={() => handlePay(memberName)}
                       disabled={!isReviewed || isPaid}
-                      className={`text-xs px-2.5 py-1.5 rounded border ${
-                        isPaid
+                      className={`text-xs px-2.5 py-1.5 rounded border ${isPaid
                           ? "border-emerald-200 bg-emerald-50 text-emerald-700 cursor-not-allowed"
                           : !isReviewed
-                          ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
-                          : "border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50"
-                      }`}
+                            ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                            : "border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50"
+                        }`}
                     >
                       {isPaid ? (
                         <span className="inline-flex items-center gap-1"><CircleDollarSign size={11} /> 지급</span>
@@ -430,6 +488,9 @@ export default function App() {
                                 <div className="text-neutral-700 w-24 tabular-nums">{item.parsed_date}</div>
                                 <div className="flex-1 text-neutral-900 flex items-center gap-2">
                                   {item.parsed_store}
+                                  {item.parsed_note && (
+                                    <span className="text-xs text-neutral-500">[{item.parsed_note}]</span>
+                                  )}
                                   {isCarried && (
                                     <span className="text-xs text-violet-600 bg-violet-50 border border-violet-200 rounded px-1">🔄 이월</span>
                                   )}
@@ -437,44 +498,47 @@ export default function App() {
                                     <span className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-1">취소</span>
                                   )}
                                 </div>
-                                <div className={`tabular-nums w-24 text-right ${(item.parsed_amount || 0) < 0 ? "text-red-600" : "text-neutral-900"}`}>{formatKRW(item.parsed_amount || 0)}</div>
-                              </div>
-                              {isContentOpen && hasContent && (
-                                <div className="mt-2 ml-7 p-3 bg-white rounded border border-neutral-200 text-xs text-neutral-700 whitespace-pre-wrap">
-                                  {item.flow_content}
-                                </div>
-                              )}
+                              <div className={`tabular-nums w-24 text-right ${(item.parsed_amount || 0) < 0 ? "text-red-600" : "text-neutral-900"}`}>{formatKRW(item.parsed_amount || 0)}</div>
                             </div>
-                          );
+                              {
+                            isContentOpen && hasContent && (
+                              <div className="mt-2 ml-7 p-3 bg-white rounded border border-neutral-200 text-xs text-neutral-700 whitespace-pre-wrap">
+                                {item.flow_content}
+                              </div>
+                            )
+                          }
+                            </div>
+                    );
                         })}
-                      </div>
-                    )}
+                  </div>
+                )}
 
-                    {group.invalidItems.length > 0 && (
-                      <div className="border-t border-neutral-100 p-3 bg-amber-50/50">
-                        <div className="text-xs font-medium text-amber-800 mb-2 flex items-center gap-1">
-                          <AlertTriangle size={12} />
-                          제목 형식 오류 - 담당자에게 수정 요청
-                        </div>
-                        <div className="space-y-1">
-                          {group.invalidItems.map(item => (
-                            <div key={item.post_id} className="text-xs text-neutral-700">· {item.flow_title}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                {group.invalidItems.length > 0 && (
+                  <div className="border-t border-neutral-100 p-3 bg-amber-50/50">
+                    <div className="text-xs font-medium text-amber-800 mb-2 flex items-center gap-1">
+                      <AlertTriangle size={12} />
+                      제목 형식 오류 - 담당자에게 수정 요청
+                    </div>
+                    <div className="space-y-1">
+                      {group.invalidItems.map(item => (
+                        <div key={item.post_id} className="text-xs text-neutral-700">· {item.flow_title}</div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
-            );
+            )
+          }
+              </div>
+        );
           })}
-        </div>
+      </div>
 
-        <div className="mt-6 text-xs text-neutral-400 text-center space-y-1">
-          <div>제목 형식: <code className="bg-neutral-100 px-1 py-0.5 rounded">YYYYMMDD 매장명 금액[원]</code></div>
-          <div>지급완료된 월에 들어온 늦은 글은 자동으로 다음 미지급 월로 이월됩니다</div>
-        </div>
+      <div className="mt-6 text-xs text-neutral-400 text-center space-y-1">
+        <div>제목 형식: <code className="bg-neutral-100 px-1 py-0.5 rounded">YYYYMMDD 매장명 금액[원]</code></div>
+        <div>지급완료된 월에 들어온 늦은 글은 자동으로 다음 미지급 월로 이월됩니다</div>
       </div>
     </div>
+    </div >
   );
 }

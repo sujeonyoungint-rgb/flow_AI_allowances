@@ -38,6 +38,7 @@ export interface Post {
   parsed_date: string | null;
   parsed_store: string | null;
   parsed_amount: number | null;
+  parsed_note: string | null;
   is_parsed: boolean;
   settlement_year: number | null;
   settlement_month: number | null;
@@ -74,6 +75,7 @@ export interface ParsedTitle {
   dateStr?: string;
   store?: string;
   amount?: number;
+  note?: string;
 }
 
 export interface ProjectMapping {

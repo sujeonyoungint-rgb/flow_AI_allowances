@@ -2,20 +2,34 @@ import { ParsedTitle } from "./types";
 
 export function parseTitle(title: string): ParsedTitle {
   const trimmed = (title || "").trim();
-  // 마이너스(-) 허용: "20260710 매장명 -17000원" 같은 취소 항목
-  const match = trimmed.match(/^(\d{8})\s+(.+?)\s+(-?[\d,]+)\s*원?\s*$/);
+  // (괄호) 부가 정보 캡처 (선택사항)
+  const match = trimmed.match(/^(\d{8}|\d{6})\s+(.+?)\s*(-?[\d,]+)\s*원?\s*(?:\(([^)]+)\))?\s*$/);
   if (!match) return { valid: false };
-  const [, dateStr, store, amountStr] = match;
-  const year = parseInt(dateStr.slice(0, 4));
-  const month = parseInt(dateStr.slice(4, 6));
-  const day = parseInt(dateStr.slice(6, 8));
+
+  const [, dateStr, store, amountStr, note] = match;
+  
+  let year: number, month: number, day: number;
+  if (dateStr.length === 8) {
+    year = parseInt(dateStr.slice(0, 4));
+    month = parseInt(dateStr.slice(4, 6));
+    day = parseInt(dateStr.slice(6, 8));
+  } else {
+    year = 2000 + parseInt(dateStr.slice(0, 2));
+    month = parseInt(dateStr.slice(2, 4));
+    day = parseInt(dateStr.slice(4, 6));
+  }
+  
   const amount = parseInt(amountStr.replace(/,/g, ""));
+  
   if (month < 1 || month > 12 || day < 1 || day > 31) return { valid: false };
   if (isNaN(amount) || amount === 0) return { valid: false };
+  
   return {
     valid: true, year, month, day,
-    dateStr: `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`,
-    store: store.trim(), amount,
+    dateStr: `${String(year)}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    store: store.trim(),
+    amount,
+    note: note?.trim() || undefined,
   };
 }
 
