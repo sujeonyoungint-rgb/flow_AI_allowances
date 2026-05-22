@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { FlowApiResponse, FlowPost, ProjectMapping } from "@/lib/types";
 import { getProjects, CLIENT_CONFIG } from "@/lib/config";
 import { parseTitle } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
-
+import { createClient } from "@/lib/supabase-server";
 // 단일 프로젝트 전체 게시글 fetch
 async function fetchProjectPosts(
   projectId: string,
@@ -70,6 +69,7 @@ async function determineSettlementMonth(
 }
 
 export async function POST() {
+  const supabase = await createClient();
   const apiKey = process.env.FLOW_API_KEY;
   const userId = process.env.FLOW_USER_ID;
   const projects: ProjectMapping[] = getProjects();

@@ -8,8 +8,10 @@ import {
 import * as XLSX from "xlsx";
 import { formatKRW } from "@/lib/utils";
 import { Post, MemberSettlement } from "@/lib/types";
+import { createClient } from "@/lib/supabase-client";
 
 export default function App() {
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const now = new Date();
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const [year, setYear] = useState(lastMonth.getFullYear());
@@ -27,6 +29,12 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { loadData(); }, [year, month]);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email || null);
+    });
+  }, []);
 
   async function loadData() {
     setLoading(true); setError(null);
@@ -63,6 +71,11 @@ export default function App() {
     } finally {
       setSyncing(false);
     }
+  }
+
+  async function handleSignOut() {
+    await fetch("/auth/signout", { method: "POST" });
+    window.location.href = "/login";
   }
 
   function getSettlement(memberName: string): MemberSettlement | undefined {
@@ -238,7 +251,7 @@ export default function App() {
     const wb = XLSX.utils.book_new();
     const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
     const ws2 = XLSX.utils.aoa_to_sheet(detailRows);
-    
+
     // 컬럼 너비
     ws1["!cols"] = [{ wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 8 }, { wch: 8 }];
     ws2["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 35 }, { wch: 12 }, { wch: 14 }, { wch: 8 }];
@@ -270,10 +283,23 @@ export default function App() {
   return (
     <div className="min-h-screen bg-neutral-50 p-6">
       <div className="max-w-5xl mx-auto">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-neutral-900">월별 수당 정산</h1>
-          <p className="text-sm text-neutral-500 mt-1">Flow 게시글 기반 · 검토 → 지급 2단계 · 자동 이월</p>
-        </div>
+        <div className="mb-6 flex items-start justify-between">
+  <div>
+    <h1 className="text-2xl font-semibold text-neutral-900">월별 수당 정산</h1>
+    <p className="text-sm text-neutral-500 mt-1">Flow 게시글 기반 · 검토 → 지급 2단계 · 자동 이월</p>
+  </div>
+  {userEmail && (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="text-neutral-600">{userEmail}</span>
+      <button
+        onClick={handleSignOut}
+        className="text-neutral-500 hover:text-neutral-900 underline text-xs"
+      >
+        로그아웃
+      </button>
+    </div>
+  )}
+</div>
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
@@ -400,10 +426,10 @@ export default function App() {
                       onClick={() => handleReview(memberName)}
                       disabled={isReviewed || group.items.length === 0}
                       className={`text-xs px-2.5 py-1.5 rounded border ${isReviewed
-                          ? "border-sky-200 bg-sky-50 text-sky-700 cursor-not-allowed"
-                          : group.items.length === 0
-                            ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
-                            : "border-sky-600 bg-white text-sky-700 hover:bg-sky-50"
+                        ? "border-sky-200 bg-sky-50 text-sky-700 cursor-not-allowed"
+                        : group.items.length === 0
+                          ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                          : "border-sky-600 bg-white text-sky-700 hover:bg-sky-50"
                         }`}
                     >
                       {isReviewed ? (
@@ -414,10 +440,10 @@ export default function App() {
                       onClick={() => handlePay(memberName)}
                       disabled={!isReviewed || isPaid}
                       className={`text-xs px-2.5 py-1.5 rounded border ${isPaid
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 cursor-not-allowed"
-                          : !isReviewed
-                            ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
-                            : "border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 cursor-not-allowed"
+                        : !isReviewed
+                          ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                          : "border-emerald-600 bg-white text-emerald-700 hover:bg-emerald-50"
                         }`}
                     >
                       {isPaid ? (
@@ -498,47 +524,47 @@ export default function App() {
                                     <span className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-1">취소</span>
                                   )}
                                 </div>
-                              <div className={`tabular-nums w-24 text-right ${(item.parsed_amount || 0) < 0 ? "text-red-600" : "text-neutral-900"}`}>{formatKRW(item.parsed_amount || 0)}</div>
-                            </div>
-                              {
-                            isContentOpen && hasContent && (
-                              <div className="mt-2 ml-7 p-3 bg-white rounded border border-neutral-200 text-xs text-neutral-700 whitespace-pre-wrap">
-                                {item.flow_content}
+                                <div className={`tabular-nums w-24 text-right ${(item.parsed_amount || 0) < 0 ? "text-red-600" : "text-neutral-900"}`}>{formatKRW(item.parsed_amount || 0)}</div>
                               </div>
-                            )
-                          }
+                              {
+                                isContentOpen && hasContent && (
+                                  <div className="mt-2 ml-7 p-3 bg-white rounded border border-neutral-200 text-xs text-neutral-700 whitespace-pre-wrap">
+                                    {item.flow_content}
+                                  </div>
+                                )
+                              }
                             </div>
-                    );
+                          );
                         })}
-                  </div>
-                )}
+                      </div>
+                    )}
 
-                {group.invalidItems.length > 0 && (
-                  <div className="border-t border-neutral-100 p-3 bg-amber-50/50">
-                    <div className="text-xs font-medium text-amber-800 mb-2 flex items-center gap-1">
-                      <AlertTriangle size={12} />
-                      제목 형식 오류 - 담당자에게 수정 요청
-                    </div>
-                    <div className="space-y-1">
-                      {group.invalidItems.map(item => (
-                        <div key={item.post_id} className="text-xs text-neutral-700">· {item.flow_title}</div>
-                      ))}
-                    </div>
+                    {group.invalidItems.length > 0 && (
+                      <div className="border-t border-neutral-100 p-3 bg-amber-50/50">
+                        <div className="text-xs font-medium text-amber-800 mb-2 flex items-center gap-1">
+                          <AlertTriangle size={12} />
+                          제목 형식 오류 - 담당자에게 수정 요청
+                        </div>
+                        <div className="space-y-1">
+                          {group.invalidItems.map(item => (
+                            <div key={item.post_id} className="text-xs text-neutral-700">· {item.flow_title}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                )
+                }
               </div>
-            )
-          }
-              </div>
-        );
+            );
           })}
-      </div>
+        </div>
 
-      <div className="mt-6 text-xs text-neutral-400 text-center space-y-1">
-        <div>제목 형식: <code className="bg-neutral-100 px-1 py-0.5 rounded">YYYYMMDD 매장명 금액[원]</code></div>
-        <div>지급완료된 월에 들어온 늦은 글은 자동으로 다음 미지급 월로 이월됩니다</div>
+        <div className="mt-6 text-xs text-neutral-400 text-center space-y-1">
+          <div>제목 형식: <code className="bg-neutral-100 px-1 py-0.5 rounded">YYYYMMDD 매장명 금액[원]</code></div>
+          <div>지급완료된 월에 들어온 늦은 글은 자동으로 다음 미지급 월로 이월됩니다</div>
+        </div>
       </div>
-    </div>
     </div >
   );
 }

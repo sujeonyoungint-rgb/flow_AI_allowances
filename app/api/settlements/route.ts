@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 
 // 월별 정산 상태 조회 (담당자별 1행)
 export async function GET(req: NextRequest) {
+  const supabase = await createClient();  // ← 추가
   const { searchParams } = new URL(req.url);
   const year = parseInt(searchParams.get("year") || "");
   const month = parseInt(searchParams.get("month") || "");
@@ -19,8 +20,13 @@ export async function GET(req: NextRequest) {
 
 // 검토완료 또는 지급완료 처리
 export async function POST(req: NextRequest) {
+  const supabase = await createClient();  // ← 추가
   const body = await req.json();
-  const { action, year, month, member_name, total_amount, post_count, actor } = body;
+const { action, year, month, member_name, total_amount, post_count } = body;
+
+// 로그인 사용자 정보
+const { data: { user } } = await supabase.auth.getUser();
+const actor = user?.email || "unknown";
 
   if (!["review", "pay"].includes(action)) {
     return NextResponse.json({ error: "invalid action" }, { status: 400 });

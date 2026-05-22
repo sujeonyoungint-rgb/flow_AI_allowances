@@ -1,6 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
-
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// 이 파일은 더 이상 사용하지 않습니다.
+// 클라이언트: lib/supabase-client.ts
+// 서버: lib/supabase-server.ts
