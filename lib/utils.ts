@@ -2,7 +2,6 @@ import { ParsedTitle } from "./types";
 
 export function parseTitle(title: string): ParsedTitle {
   const trimmed = (title || "").trim();
-  // (괄호) 부가 정보 캡처 (선택사항)
   const match = trimmed.match(/^(\d{8}|\d{6})\s+(.+?)\s*(-?[\d,]+)\s*원?\s*(?:\(([^)]+)\))?\s*$/);
   if (!match) return { valid: false };
 
@@ -23,6 +22,19 @@ export function parseTitle(title: string): ParsedTitle {
   
   if (month < 1 || month > 12 || day < 1 || day > 31) return { valid: false };
   if (isNaN(amount) || amount === 0) return { valid: false };
+  
+  // 날짜 검증: 미래 X, 과거 3개월 초과 X
+  const parsedDate = new Date(year, month - 1, day);
+  const now = new Date();
+  now.setHours(23, 59, 59, 999); // 오늘 끝까지는 OK (당일 미래 X)
+  
+  if (parsedDate > now) return { valid: false };
+  
+  // 과거 N개월까지 허용 (오타 방지용, 늦은 보정글 고려해 넉넉히)
+const PAST_MONTHS_LIMIT = 6;
+const pastLimit = new Date(now.getFullYear(), now.getMonth() - PAST_MONTHS_LIMIT, now.getDate());
+pastLimit.setHours(0, 0, 0, 0);
+if (parsedDate < pastLimit) return { valid: false };
   
   return {
     valid: true, year, month, day,

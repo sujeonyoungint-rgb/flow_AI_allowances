@@ -64,6 +64,10 @@ export interface MemberSettlement {
   is_paid: boolean;
   paid_at: string | null;
   paid_by: string | null;
+  actual_amount: number | null;
+  memo: string | null;
+  actual_updated_at: string | null;
+  actual_updated_by: string | null;
   created_at: string;
 }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { FlowApiResponse, FlowPost, ProjectMapping } from "@/lib/types";
 import { getProjects, CLIENT_CONFIG } from "@/lib/config";
-import { parseTitle } from "@/lib/utils";
+import { parseTitle, parseFlowDateTime } from "@/lib/utils";
 import { createClient } from "@/lib/supabase-server";
 // 단일 프로젝트 전체 게시글 fetch
 async function fetchProjectPosts(
@@ -42,29 +42,45 @@ async function fetchProjectPosts(
   return allPosts;
 }
 
-// 정산월 결정: 잠긴 월이면 다음 미지급 월로 이월
-async function determineSettlementMonth(
+// 정산월 결정:
+// - 기본은 제목 날짜의 달
+// - 그 달이 지급완료됐고, 글이 "지급완료 시각 이후"에 등록됐으면 → 다음 미지급 월로 이월
+// - 지급 전에 등록된 글이면 이월하지 않고 제 달에 그대로 둠
+function determineSettlementMonth(
   parsedYear: number,
   parsedMonth: number,
   memberName: string,
-  paidMonths: Set<string>, // "YYYY-MM" 형태
+  registeredDate: Date | null,
+  paidMonthsMap: Map<string, Date | null>, // key: "name:YYYY-MM" → paid_at
   currentYear: number,
   currentMonth: number
-): Promise<{ year: number; month: number }> {
+): { year: number; month: number } {
   let y = parsedYear;
   let m = parsedMonth;
+
   for (let i = 0; i < 24; i++) {
-    const key = `${y}-${String(m).padStart(2, "0")}`;
-    if (!paidMonths.has(`${memberName}:${key}`)) {
-      // 미래 월로 가지 않음
+    const key = `${memberName}:${y}-${String(m).padStart(2, "0")}`;
+    const paidAt = paidMonthsMap.get(key);
+
+    // 이 달이 지급완료가 아니면 → 여기 확정
+    if (paidAt === undefined) {
+      // 미래 월 방지
       if (y > currentYear || (y === currentYear && m > currentMonth)) {
         return { year: currentYear, month: currentMonth };
       }
       return { year: y, month: m };
     }
+
+    // 이 달이 지급완료임. 글이 지급 시각 이전에 등록됐으면 → 이월 안 함, 제 달 유지
+    if (registeredDate && paidAt && registeredDate <= paidAt) {
+      return { year: y, month: m };
+    }
+
+    // 글이 지급 시각 이후에 등록됨(늦은 글) → 다음 달로 이월
     m++;
     if (m > 12) { m = 1; y++; }
   }
+
   return { year: currentYear, month: currentMonth };
 }
 
@@ -91,19 +107,37 @@ export async function POST() {
     const allItems = fetchResults.flat();
 
     // 2) 기존 DB 상태 조회
-    const { data: existingPosts } = await supabase
-      .from("posts")
-      .select("post_id, is_locked, locked_amount, settlement_year, settlement_month, is_deleted_from_flow");
+    // 기존 posts 전체 조회 (1000행 제한 회피 위해 페이지네이션)
+    const existingPosts: any[] = [];
+    {
+      const PAGE = 1000;
+      let from = 0;
+      for (let i = 0; i < 50; i++) {
+        const { data: chunk, error: pErr } = await supabase
+          .from("posts")
+          .select("post_id, is_locked, locked_amount, settlement_year, settlement_month, is_deleted_from_flow")
+          .range(from, from + PAGE - 1);
+        if (pErr) throw new Error(pErr.message);
+        if (!chunk || chunk.length === 0) break;
+        existingPosts.push(...chunk);
+        if (chunk.length < PAGE) break;
+        from += PAGE;
+      }
+    }
     const existingMap = new Map<string, any>(
-      (existingPosts || []).map(p => [p.post_id, p])
+      existingPosts.map(p => [p.post_id, p])
     );
+  
 
     const { data: settlements } = await supabase
       .from("member_settlements")
-      .select("member_name, year, month, is_paid")
+      .select("member_name, year, month, is_paid, paid_at")
       .eq("is_paid", true);
-    const paidMonths = new Set<string>(
-      (settlements || []).map(s => `${s.member_name}:${s.year}-${String(s.month).padStart(2, "0")}`)
+    const paidMonthsMap = new Map<string, Date | null>(
+      (settlements || []).map(s => [
+        `${s.member_name}:${s.year}-${String(s.month).padStart(2, "0")}`,
+        s.paid_at ? new Date(s.paid_at) : null,
+      ])
     );
 
     const now = new Date();
@@ -132,9 +166,13 @@ export async function POST() {
           isAmountModified = true;
         }
       } else if (parsed.valid) {
-        // 미잠금: 정산월 새로 결정
-        const sm = await determineSettlementMonth(
-          parsed.year!, parsed.month!, memberName, paidMonths, currentYear, currentMonth
+        // 미잠금: 정산월 결정 (지급 후 등록된 글만 이월)
+        const registeredDate = post.registeredDateTime
+          ? parseFlowDateTime(post.registeredDateTime)
+          : null;
+        const sm = determineSettlementMonth(
+          parsed.year!, parsed.month!, memberName,
+          registeredDate, paidMonthsMap, currentYear, currentMonth
         );
         settlementYear = sm.year;
         settlementMonth = sm.month;

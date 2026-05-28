@@ -28,7 +28,7 @@ const { action, year, month, member_name, total_amount, post_count } = body;
 const { data: { user } } = await supabase.auth.getUser();
 const actor = user?.email || "unknown";
 
-  if (!["review", "pay"].includes(action)) {
+  if (!["review", "pay", "updateActual", "cancelReview", "cancelPay"].includes(action)) {
     return NextResponse.json({ error: "invalid action" }, { status: 400 });
   }
   if (!year || !month || !member_name) {
@@ -60,38 +60,31 @@ const actor = user?.email || "unknown";
       }, { onConflict: "year,month,member_name" });
     if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
 
-    // 2) 해당 월의 모든 미잠금 게시글을 잠그고 locked_amount 기록
-    const { error: e2 } = await supabase
-      .from("posts")
-      .update({
-        is_locked: true,
-        locked_amount: undefined, // 아래 RPC가 필요. 일단 raw로 처리
-      })
-      .eq("settlement_year", year)
-      .eq("settlement_month", month)
-      .eq("member_name", member_name)
-      .eq("is_locked", false);
-    // locked_amount = parsed_amount로 설정 필요 → SQL로 처리
-    // Supabase는 raw SQL 함수 호출이 필요한데, 간단히 select 후 개별 update로 대체
+    // 2) 해당 월의 파싱된 미잠금 게시글을 모두 잠그고 locked_amount = parsed_amount 기록
     const { data: toLock } = await supabase
       .from("posts")
       .select("post_id, parsed_amount")
       .eq("settlement_year", year)
       .eq("settlement_month", month)
       .eq("member_name", member_name)
-      .eq("is_parsed", true);
+      .eq("is_parsed", true)
+      .eq("is_locked", false);
 
     if (toLock && toLock.length > 0) {
-      // 개별 update (적은 양이라 성능 무관)
       for (const p of toLock) {
-        await supabase
+        const { error: lockErr } = await supabase
           .from("posts")
-          .update({ is_locked: true, locked_amount: p.parsed_amount, is_amount_modified: false })
+          .update({
+            is_locked: true,
+            locked_amount: p.parsed_amount,
+            is_amount_modified: false,
+          })
           .eq("post_id", p.post_id);
+        if (lockErr) return NextResponse.json({ error: lockErr.message }, { status: 500 });
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, locked: toLock?.length || 0 });
   }
 
   // === 지급완료 ===
@@ -111,6 +104,92 @@ const actor = user?.email || "unknown";
       })
       .eq("year", year).eq("month", month).eq("member_name", member_name);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
+  // === 실제지급액 수정 ===
+  if (action === "updateActual") {
+    if (!existing?.is_reviewed) {
+      return NextResponse.json({ error: "검토완료 후에만 입력 가능합니다" }, { status: 400 });
+    }
+    const { actual_amount, memo } = body;
+    const parsedActual = 
+      actual_amount === null || actual_amount === undefined || actual_amount === ""
+        ? null 
+        : Number(actual_amount);
+    
+    const { error } = await supabase
+      .from("member_settlements")
+      .update({
+        actual_amount: parsedActual,
+        memo: memo || null,
+        actual_updated_at: new Date().toISOString(),
+        actual_updated_by: actor,
+      })
+      .eq("year", year).eq("month", month).eq("member_name", member_name);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+// === 검토취소 ===
+  if (action === "cancelReview") {
+    if (!existing?.is_reviewed) {
+      return NextResponse.json({ error: "검토되지 않은 항목입니다" }, { status: 400 });
+    }
+    if (existing.is_paid) {
+      return NextResponse.json(
+        { error: "지급완료된 항목은 검토취소할 수 없습니다. 먼저 지급취소하세요" },
+        { status: 400 }
+      );
+    }
+
+    // 1) settlement 레코드 검토 해제
+    const { error: e1 } = await supabase
+      .from("member_settlements")
+      .update({
+        is_reviewed: false,
+        reviewed_at: null,
+        reviewed_by: null,
+      })
+      .eq("year", year)
+      .eq("month", month)
+      .eq("member_name", member_name);
+    if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
+
+    // 2) 해당 월/담당자 게시글 잠금 해제
+    const { error: e2 } = await supabase
+      .from("posts")
+      .update({
+        is_locked: false,
+        locked_amount: null,
+        is_amount_modified: false,
+      })
+      .eq("settlement_year", year)
+      .eq("settlement_month", month)
+      .eq("member_name", member_name)
+      .eq("is_locked", true);
+    if (e2) return NextResponse.json({ error: e2.message }, { status: 500 });
+
+    return NextResponse.json({ ok: true });
+  }
+
+  // === 지급취소 ===
+  if (action === "cancelPay") {
+    if (!existing?.is_paid) {
+      return NextResponse.json({ error: "지급되지 않은 항목입니다" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("member_settlements")
+      .update({
+        is_paid: false,
+        paid_at: null,
+        paid_by: null,
+      })
+      .eq("year", year)
+      .eq("month", month)
+      .eq("member_name", member_name);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
     return NextResponse.json({ ok: true });
   }
 }
