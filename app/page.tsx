@@ -222,11 +222,18 @@ export default function App() {
       }
     });
     invalidPosts.forEach(p => {
-      // 파싱 실패 글은 settlement_year/month가 없음 → 현재 선택된 월 그룹에 배치
-      // 다중 월 선택일 때는 첫 번째 월에 배치 (어차피 같은 글이 여러 월에 중복으로 안 나오게)
-      const targetMonth = selectedMonths[0];
-      if (!targetMonth) return;
-      const g = ensureGroup(targetMonth.year, targetMonth.month, p.member_name);
+      // 파싱 실패 글은 settlement_year/month가 없으니, Flow 등록 시각으로 월 결정
+      if (!p.flow_registered_datetime) return;
+      const dt = p.flow_registered_datetime;
+      const y = parseInt(dt.slice(0, 4));
+      const m = parseInt(dt.slice(4, 6));
+      if (!y || !m) return;
+
+      // 선택된 월에 포함되는 경우만 표시
+      const isInSelected = selectedMonths.some(s => s.year === y && s.month === m);
+      if (!isInSelected) return;
+
+      const g = ensureGroup(y, m, p.member_name);
       g.invalidItems.push(p);
     });
     modifiedPosts.forEach(p => {

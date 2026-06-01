@@ -31,9 +31,11 @@ export async function GET() {
     unique.add(`${r.settlement_year}-${r.settlement_month}`);
   });
 
-  // 현재 월도 항상 포함 (데이터 없어도 선택 가능)
-  const now = new Date();
-  unique.add(`${now.getFullYear()}-${now.getMonth() + 1}`);
+  // 현재 월도 항상 포함 (한국 시간 기준)
+  const nowKST = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const currentYear = nowKST.getUTCFullYear();
+  const currentMonth = nowKST.getUTCMonth() + 1;
+  unique.add(`${currentYear}-${currentMonth}`);
 
   // 최신순 정렬
   const months = Array.from(unique)
